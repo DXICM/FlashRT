@@ -16,6 +16,7 @@ dependencies = [
 
 [project.optional-dependencies]
 torch = ["torch", "safetensors", "sentencepiece"]
+chameleon = ["torch", "safetensors", "transformers>=4.43,<4.56", "Pillow"]
 jax = ["jax", "jaxlib", "ml_dtypes", "orbax-checkpoint", "flax"]
 server = ["fastapi", "uvicorn"]
 eval = ["opencv-python", "tqdm"]
@@ -42,7 +43,7 @@ flash-attn = ["flash-attn"]
 # (flash_rt/hardware/thor/fa4_backend.py) sets CUTE_DSL_ARCH=sm_101a.
 # Requires an editable / source-tree install (pip install -e). pip install ".[thor-fa4]".
 thor-fa4 = ["nvidia-cutlass-dsl==4.5.1", "quack-kernels==0.4.1"]
-all = ["flash-rt[torch,jax,server,eval,minimax-remover]"]
+all = ["flash-rt[torch,jax,server,eval,minimax-remover,chameleon]"]
 
 [tool.setuptools.packages.find]
 include = ["flash_rt*"]

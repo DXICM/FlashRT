@@ -216,9 +216,9 @@ model = flash_rt.load_model(
 | `config` | `str` | `"pi05"` | Model architecture config: `"pi05"`, `"pi0"`, `"groot"`, `"groot_n17"`, `"pi0fast"`, `"motus"`, `"wan22_ti2v_5b"`, `"cosmos3_video"`, `"cosmos3_edge"`. Cosmos video/Edge routes use `set_prompt(...)` + `infer(...)`, not the VLA `predict()` convenience API. |
 | `decode_cuda_graph` | `bool` | `False` | **Pi0-FAST only.** Capture action-phase decode as CUDA Graph. Trades startup time for per-token speed. See [Pi0-FAST](#pi0-fast). |
 | `decode_graph_steps` | `int` | `80` | **Pi0-FAST only.** Number of action tokens to capture in the decode graph. Should cover your longest expected action sequence. |
-| `use_fp4` | `bool` | `False` | **Pi0.5 torch + jax on Thor.** Enable NVFP4 quantization on the encoder FFN stack. When `True`, resolves to the production preset (`fp4_layers=tuple(range(18))` + `use_awq=True` + `use_p1_split_gu=True`). Requires SM100+ GPU. Other configs emit a warning and fall back to FP8. See [NVFP4](#nvfp4-pi05-only). |
-| `fp4_layers` | `tuple[int]` \| `None` | `None` | Encoder layer indices to FP4-quantize. `None` → resolved by the `use_fp4` preset. Passing an explicit tuple overrides the preset. Only `(7,8,9)` and `range(18)`+AWQ are task-level validated. |
-| `use_awq` | `bool` \| `None` | `None` | Activation-aware weight quant. Required for 18-layer FP4 scope (without it, cos collapses to ~0.33). `None` → resolved by the `use_fp4` preset. |
+| `use_fp4` | `bool` | `False` | **Pi0.5 torch + jax on Thor.** Enable NVFP4 quantization on the encoder FFN stack. When `True`, resolves to the production preset (`fp4_layers=tuple(range(17))` + `use_awq=True` + `use_p1_split_gu=True`). Requires SM100+ GPU. Other configs emit a warning and fall back to FP8. See [NVFP4](#nvfp4-pi05-only). |
+| `fp4_layers` | `tuple[int]` \| `None` | `None` | Encoder layer indices to FP4-quantize. `None` → resolved by the `use_fp4` preset. Passing an explicit tuple overrides the preset. Valid live FFN indices are 0-16; `(7,8,9)` and `range(17)`+AWQ are task-level validated. |
+| `use_awq` | `bool` \| `None` | `None` | Activation-aware weight quant. Required for the full 17-layer FP4 scope (without it, cos collapses to ~0.33). `None` → resolved by the `use_fp4` preset. |
 | `awq_alpha` | `float` | `0.5` | AWQ scaling exponent `s[k] = (a[k]/a.mean())^alpha`. |
 | `use_p1_split_gu` | `bool` \| `None` | `None` | P1 split-GU 2-GEMM path (parity on Pi0.5, kernel reusable for Pi0.6). `None` → resolved by the `use_fp4` preset. |
 | `use_fp8` | `bool` | `True` | Enable the selected frontend's FP8 path when available. Set `False` for frontends with a documented BF16 fallback or for explicit full-FP16 reference paths. `groot_n17` on RTX/Thor is stricter: `use_fp8=False` alone raises, and the non-quantized reference path is `use_fp16=True, use_fp8=False`. |
@@ -680,6 +680,39 @@ once and reused, so per-chunk cost is just the infer row.
 
 This path does not change CMake targets, C++ bindings, or existing
 Pi0/Pi0.5/GROOT N1.6 runtime dispatch.
+
+### Chameleon-7B (Thor)
+
+Standalone Chameleon-7B (text + image) is a direct-instantiation Thor
+frontend — it is registered in `_PIPELINE_MAP` but is **not** dispatched by
+`flash_rt.load_model` (same pattern as Qwen3-VL). The VQGAN image
+tokenizer defaults to the generic eager Chameleon path; if compatible
+TensorRT engines exist in the deployment, it is recommended to opt in
+explicitly (`use_trt_vqgan=True`). A Jetson Orin (SM87) INT8/QuaRot
+frontend is also available; see [`docs/chameleon_usage.md`](docs/chameleon_usage.md),
+[`docs/chameleon_thor_sm110.md`](docs/chameleon_thor_sm110.md) and
+[`docs/chameleon7b_rtx_sm87.md`](docs/chameleon7b_rtx_sm87.md).
+
+```python
+from flash_rt.frontends.torch.chameleon_thor import ChameleonTorchFrontendThor
+
+fe = ChameleonTorchFrontendThor(
+    "/path/to/Chameleon_7B_mGPT",
+    use_fp8=True,            # dynamic per-tensor FP8 (recommended default)
+    use_cuda_graph=True,
+    use_trt_vqgan=False,     # generic default = eager VQGAN; set True when engines exist
+    target_size=512,
+)
+
+out = fe.prefill("Describe the image.", [pil_image])
+# out["logits"]: (65536,) fp32 with mask_image_logits applied
+```
+
+FA4 attention is an explicit opt-in fast path
+(`use_fa4_attn=True` / `FLASHRT_CHAMELEON_FA4_ATTN=1`, needs the
+`thor-fa4` pip extra); measured transformer-prefill-only ≈ **104 ms** at
+Se≈1056 vs ≈111 ms with CUTLASS FMHA. E2E (TRT VQGAN + FA4) ≈ **120 ms**
+vs HF BF16 ≈ 403 ms transformer-only (~3.4×).
 
 ### Wan2.2 TI2V-5B
 
@@ -1502,8 +1535,8 @@ model = flash_rt.load_model(
     use_fp4=True,
 )
 # Equivalent to passing:
-#   fp4_layers=tuple(range(18))   # full encoder FFN (18 layers)
-#   use_awq=True                   # required for 18-layer scope
+#   fp4_layers=tuple(range(17))   # all 17 live encoder FFNs
+#   use_awq=True                   # required for full-scope calibration
 #   use_p1_split_gu=True           # production P1 path
 
 # Advanced: override sub-flags for A/B or debug:
@@ -1523,8 +1556,8 @@ When `use_fp4=True` and a sub-flag (`fp4_layers`, `use_awq`,
 
 | Sub-flag | Preset value | Reason |
 |---|---|---|
-| `fp4_layers` | `tuple(range(18))` | Full encoder FFN coverage |
-| `use_awq` | `True` | Required for 18-layer scope (without AWQ, full-scope FP4 cos collapses to ~0.33) |
+| `fp4_layers` | `tuple(range(17))` | All live encoder FFN coverage |
+| `use_awq` | `True` | Required for full-scope calibration (without AWQ, full-scope FP4 cos collapses to ~0.33) |
 | `use_p1_split_gu` | `True` | Split Gate+Up → 2× fp4out GEMM + combiner (Pi0.5 parity, Pi0.6 reusable) |
 
 ### What it does
@@ -1609,9 +1642,9 @@ claim.
 
 ### Layer selection
 
-`fp4_layers` accepts any subset of encoder layer indices 0-17. Two
+`fp4_layers` accepts any subset of live encoder layer indices 0-16. Two
 configurations are task-level LIBERO-validated:
-- `tuple(range(18))` + AWQ (production preset — `--use_fp4` default)
+- `tuple(range(17))` + AWQ (production preset — `--use_fp4` default)
 - `(7, 8, 9)` without AWQ (the conservative subset, from the first FP4 drop)
 
 Other subsets are simulation-only (see the internal precision report).
