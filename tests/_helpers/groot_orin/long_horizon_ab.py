@@ -27,7 +27,7 @@ bundles on disk. This keeps one frame's capture in memory, compares, and drops
 it — HF eager, both FlashRT arms and the comparison all live in one process.
 
 Usage (set FLASHRT_GROOT_N17_CHECKPOINT / FLASHRT_GROOT_N17_DATASET first,
-or pass --ckpt / --dataset; use N16 variables with --ver n16):
+or pass --ckpt / --dataset):
   PYTHONPATH="${ISAAC_GROOT_ROOT}:${FLASHRT_ROOT}" \
     "${GROOT_N17_VENV}/bin/python" \
     tests/_helpers/groot_orin/long_horizon_ab.py \
