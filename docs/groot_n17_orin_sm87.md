@@ -118,8 +118,8 @@ venv（`--system-site-packages` 共享系统 torch 2.3.0）：
 
 | venv | transformers | 备注 |
 |---|---|---|
-| `/mnt/venvs/groot_n17` | 4.57.1（系统） | N1.7 官方 orin pin 是 4.57.6，4.57.1 实测可加载且权重完整 |
-| `/mnt/venvs/groot_n16` | **4.51.3**（降级） | N1.6 官方 pin；需额外 `lmdb`（vendored Eagle remote code 导入它） |
+| `${GROOT_N17_VENV}` | 4.57.1（系统） | N1.7 官方 orin pin 是 4.57.6，4.57.1 实测可加载且权重完整 |
+| `${GROOT_N16_VENV}` | **4.51.3**（降级） | N1.6 官方 pin；需额外 `lmdb`（vendored Eagle remote code 导入它） |
 
 > ⚠️ N1.6 与 N1.7 的 transformers 版本互斥，**必须两个 venv**，不能共用。
 
@@ -216,7 +216,7 @@ backbone engine."* → **NVIDIA 在 Orin 上完全没有优化 backbone，128 ms
 
 ## 4. 模型结构（实测，权重为准）
 
-checkpoint：`/mnt/GR00T/so101_sim_rynnbot/checkpoint-89-1.000`
+checkpoint：`${FLASHRT_GROOT_N17_CHECKPOINT}`
 （`architectures: ["Gr00tN1d7"]`，`base_model_path: .../GR00T-N1.7-3B`，
 微调 89 步只 tune projector；1030 个张量，与 `docs/groot_transformers5_weight_corruption.md`
 记录的 N1.7「1030/1030」一致 ⇒ **与 Thor 适配用的是同一批权重**）。
@@ -274,7 +274,31 @@ vs Se=196 的 0.160 ms，非线性，疑似跨 128 行 tile 边界）。
 
 ### 5.1 数据源
 
-- 原训练集不在本机（`trainer_args.json` 指向 `/mnt/data/xueshengke/dataset/...`，`/mnt/data` 不存在）。
+文中的本地目录均为复现占位符，请按实际环境设置。以下路径不代表公开可下载的
+checkpoint 或数据包；需要准备与测量记录相同的权重和数据。
+
+```bash
+export FLASHRT_ROOT=/path/to/FlashRT
+export ISAAC_GROOT_ROOT=/path/to/Isaac-GR00T
+export ISAAC_GROOT_N16_ROOT=/path/to/Isaac-GR00T-n16
+export GROOT_N17_VENV=/path/to/venvs/groot_n17
+export GROOT_N16_VENV=/path/to/venvs/groot_n16
+export GROOT_CHECKPOINT_ROOT=/path/to/checkpoints
+export FLASHRT_GROOT_N17_CHECKPOINT="${GROOT_CHECKPOINT_ROOT}/n17/checkpoint-89-1.000"
+export FLASHRT_GROOT_N16_CHECKPOINT="${GROOT_CHECKPOINT_ROOT}/n16/checkpoint-10-1.000"
+export GROOT_DATA_ROOT=/path/to/datasets
+export GROOT_SIM_ARCHIVE=/path/to/simulation_dataset.zip
+export FLASHRT_GROOT_N17_DATASET="${GROOT_DATA_ROOT}/cube_to_bowl_5"
+export FLASHRT_GROOT_N16_DATASET="${GROOT_DATA_ROOT}/cube_to_bowl_5"
+```
+
+三个 `tests/_helpers/groot_orin/` 参考脚本接受 `--ckpt` / `--dataset`，
+未传参数时读取相应版本的 `FLASHRT_GROOT_N17_*` 或 `FLASHRT_GROOT_N16_*`
+环境变量；两者都未配置时明确报错。仿真复验请用
+`--dataset "${GROOT_DATA_ROOT}/green_to_blue_block_sim"` 覆盖默认数据集，
+并保留原记录要求的 fixture tag、帧列表及 provenance。
+
+- 原训练集不在本机（`trainer_args.json` 指向 `<training_dataset_root>/...`，该训练目录在验证环境中不存在）。
 - 采用官方 `Isaac-GR00T` `demo_data/cube_to_bowl_5`：`robot_type: so101_follower`，
   5 episodes / 4148 帧 / 30 fps，任务 `cube into yellow bowl`、`cube into green bowl`。
   与 N1.7 checkpoint 的训练集 `so101/stack_color_cubes_24_rynnbot` 同机器人同任务族。
@@ -291,7 +315,7 @@ checkpoint 的 `new_embodiment` tag 要求 language 键为 `annotation.prompt`�
 （两者 `original_key` 都是 `task_index`）。video（`front`/`wrist`）与
 state（`observation.state` [6]）键**已完全匹配**。
 
-做法：`/mnt/groot_realdata/cube_to_bowl_5/` 下放**真实 `meta/` 的副本（仅 annotation 键改名）**，
+做法：`${GROOT_DATA_ROOT}/cube_to_bowl_5/` 下放**真实 `meta/` 的副本（仅 annotation 键改名）**，
 `data/` 与 `videos/` 用**符号链接**指向原数据集。已验证 video/state/action 三段
 与源文件字节一致，源 `modality.json` sha256 `cc0229b172325386` 未被修改。
 
@@ -329,7 +353,7 @@ state（`observation.state` [6]）键**已完全匹配**。
 > ✅ **N1.6 的 fixture 与 aux 束已用正确的 checkout 重生成**（此前失败于
 > `ValueError: model type 'Gr00tN1d6' but Transformers does not recognize this
 > architecture` —— 误用了 N1.7 的 checkout）。**必须**
-> `PYTHONPATH=/mnt/Isaac-GR00T-n16:/mnt/FlashRT` + `/mnt/venvs/groot_n16`
+> `PYTHONPATH=${ISAAC_GROOT_N16_ROOT}:${FLASHRT_ROOT}` + `${GROOT_N16_VENV}`
 > （transformers 4.51.3）；两个 venv 的 transformers 版本互斥。
 > 重生成时顺带给 `gen_reference.py` 补了 **`vlln` 阶段采集**：N1.6 没有
 > `vl_self_attention`，`vlln` 的输出就是 DiT 消费的 context，不采集它就
@@ -402,21 +426,21 @@ N1.7 的 [-2.32, 2.65] rad。
 
 ### 5.6 第二个独立数据集：仿真采集的 `green_to_blue_block_sim`（复验用）
 
-**来源**：使用方提供 `/mnt/3ccddd530eb34632a126596a640adbaa.zip`，解压到
-`/mnt/groot_simdata/3ccddd530eb34632a126596a640adbaa/`（原始字节未改动）。
+**来源**：使用方提供 `${GROOT_SIM_ARCHIVE}`，解压到
+`${GROOT_DATA_ROOT}/sim_source/`（原始字节未改动）。
 LeRobot v2.1 布局：**50 episodes / 31166 frames / 30 fps / 2 相机**
 （`observation.images.front` + `.wrist`），h264 yuv420p 640×360，
 state/action 是 6 维关节。任务是 "Pick up green block and put it on the blue block"。
 
 **为什么值得单开一节**：出厂门禁全部建立在 `cube_to_bowl_5`（真机 AV1，Se=141）
-的**两帧**上。两帧 + 一个数据集不足以支撑"这个通路对"的主张 —— 
+的**两帧**上。两帧 + 一个数据集不足以支撑"这个通路对"的主张 ——
 尤其是 Se 是常驻 runtime 的 key 之一（杠杆 #12），
 而 DiT 的 `Skv_text/Skv_image` 又随 Se 变。第二个数据集给出
 **不同编码器（h264 vs AV1）、不同 Se（148 vs 141）、不同采集方式（仿真 vs 真机）**
 的独立复验。
 
 **元数据适配（沿用 §5.2 的先例，真实字节不动）**：
-`/mnt/groot_realdata/green_to_blue_block_sim/` 只放 `meta/`（`annotation.prompt`
+`${GROOT_DATA_ROOT}/green_to_blue_block_sim/` 只放 `meta/`（`annotation.prompt`
 按 §5.2 改名），`data` 与 `videos` **符号链接**回原目录并逐字节校验；
 源目录的 sha256 不变。
 
@@ -446,8 +470,8 @@ fixture tag 与帧列表改为环境变量驱动 ——
 ```bash
 FLASHRT_GROOT_N17_FIXTURE_TAG=_sim \
 FLASHRT_GROOT_N17_FRAMES=100,15000 \
-PYTHONPATH=/mnt/Isaac-GR00T \
-FLASHRT_GROOT_N17_CHECKPOINT=/mnt/GR00T/so101_sim_rynnbot/checkpoint-89-1.000 \
+PYTHONPATH="${ISAAC_GROOT_ROOT}" \
+FLASHRT_GROOT_N17_CHECKPOINT="${FLASHRT_GROOT_N17_CHECKPOINT}" \
   pytest tests/test_orin_groot_n17_precision.py -q
 ```
 
@@ -465,7 +489,7 @@ FLASHRT_GROOT_N17_CHECKPOINT=/mnt/GR00T/so101_sim_rynnbot/checkpoint-89-1.000 \
 
 **⚠️ 顺带发现并修掉的一个 provenance 缺陷**：`gen_reference.py` 的
 `meta.provenance` 原是**硬编码**的 "real robot frames (SO101 cube_to_bowl_5, AV1)"。
-加 `--tag _sim` 复用该脚本后，10 个**仿真** fixture 全都声称自己是真机 AV1 帧 —— 
+加 `--tag _sim` 复用该脚本后，10 个**仿真** fixture 全都声称自己是真机 AV1 帧 ——
 数据溯源说谎，而 AGENTS.md §3.7 把 provenance 列为验收项。
 修法遵循本文一贯的做法（**派生而非复述**，同 `_shipped_default_int8()` 从构造函数读默认值）：
 加 `--provenance` 参数，默认值就是原来那句话（`DEFAULT_PROVENANCE`，
@@ -1051,15 +1075,15 @@ HF 用 `torch.tensor(weight_list, dtype=self.pos_embed.weight.dtype)` 构造双�
 **复跑命令**（少任何一项都会假失败，都是实测踩过的）：
 
 ```bash
-source /mnt/venvs/groot_n17/bin/activate
-FLASHRT_GROOT_N17_CHECKPOINT=/mnt/GR00T/so101_sim_rynnbot/checkpoint-89-1.000 \
+source "${GROOT_N17_VENV}/bin/activate"
+FLASHRT_GROOT_N17_CHECKPOINT="${FLASHRT_GROOT_N17_CHECKPOINT}" \
   HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
-  PYTHONPATH=/mnt/Isaac-GR00T:. \
+  PYTHONPATH="${ISAAC_GROOT_ROOT}:." \
   python -m pytest tests/test_orin_groot_n17_{dispatch,precision}.py -q
 # => 23 passed（precision 12 + dispatch 11）
 ```
 
-- `PYTHONPATH` 里的 `/mnt/Isaac-GR00T` **不是可选的**：G4 调 `denormalize_action`，
+- `PYTHONPATH` 里的 `${ISAAC_GROOT_ROOT}` **不是可选的**：G4 调 `denormalize_action`，
   它会惰性 `import gr00t.model.gr00t_n1d7` 去建 HF processor。缺了就
   `ModuleNotFoundError: No module named 'gr00t'`（只挂 G4 那 2 项，其余 10 项照过
   ⇒ 极易被误读成"融合坏了"）。
@@ -2067,7 +2091,7 @@ max&#124;d&#124; **3.1e-02** —— 正好是 C2 量到的普通帧间差，不�
 #### 6.15.3 ⚠️ 本节最值钱的发现：**decoded action 的 cos 门不住 stranded KV**
 
 第一版负控制写在**连续帧**上（把帧 100 的 KV 留在槽里，然后要帧 107），
-结果 **没有退化**：0.3636° vs 0.2499°（1.45×），cos **0.999998752** —— 
+结果 **没有退化**：0.3636° vs 0.2499°（1.45×），cos **0.999998752** ——
 **仍然远高于 0.999 的门**。换成远端帧（31000，另一集）才勉强到 5.8×，
 cos 还是 **0.999991673**，**门照样过**。
 
@@ -2082,7 +2106,7 @@ cos 还是 **0.999991673**，**门照样过**。
 | 2 | step-0 velocity vs 该帧 HF | **0.999590913** | **0.994225295** | ✅ 掉 5.4e-3，可门 |
 | 3 | decoded action | 0.2129°（cos 0.999999582） | 1.2337°（cos **0.999991673**） | ❌ **过门**，不可用 |
 
-**结论写进方法论**：层 0 说明"两帧的参考动作差 10%"，层 3 却只动 5.8×且 cos 不掉 —— 
+**结论写进方法论**：层 0 说明"两帧的参考动作差 10%"，层 3 却只动 5.8×且 cos 不掉 ——
 ⇒ **本 checkpoint 的 decoded action 被 state 输入主导，视觉 context 的贡献只有 ~1°**。
 这与原则 #2（生产指标 ≠ 内部精度）同型，但方向相反：
 那里是后处理**掩盖**了 >10° 的模型误差，这里是**动作本身对 context 不敏感**，
@@ -2108,7 +2132,7 @@ vs HF 同一边界 **358.84 ms → 3.05×**。
 #### 6.15.5 顺带落地的一个零风险优化：fp32 权重缓存（−4.58 ms，逐位相同）
 
 刷新从 13.10 ms 起（首次量测），诊断而非猜测：
-`_project_dit_cross_kv` 每次调用都对 **32 个 (2048,1536) 权重做 `.float()`** —— 
+`_project_dit_cross_kv` 每次调用都对 **32 个 (2048,1536) 权重做 `.float()`** ——
 403 MB 分配 + ~604 MB 流量，实测 **5.10 ms / 12.68 ms = 40%**。
 权重永不改变，且 bf16→fp32 是**精确**提升 ⇒ 缓存后 **逐位相同**（实测
 `torch.equal` 全 32 项 True）。只提升**偶数层**（`li = 2*j` 从不取奇数）。
@@ -2159,7 +2183,7 @@ cross-KV 失效由 `_refresh_dit_cross_kv` 原地完成（且 C6 层 1 证明它
 1. 🔴 **RTX FP8 mixin 的 `infer(aux=...)` 会让 DiT 读到上一帧的 cross-KV**（已核实到行）：
    `groot_n17_rtx_fp8.py:180-192` 只重算 `_backbone_features`，
    然后调 `super().infer(...)`；而 Thor 的 `infer` 是
-   `if not hasattr(self, "_dit_cross_K"): self._precompute_dit_cross_kv()` —— 
+   `if not hasattr(self, "_dit_cross_K"): self._precompute_dit_cross_kv()` ——
    `set_prompt` 已经建过了，所以**永远走不到重算**。
    整个 mixin 源码里 `_dit_cross` **零命中**（已用 `inspect.getsource` 钉进测试）。
    这正是 §6.15.3 那个"外层 cos 门不住"的失效模式：在**本 checkpoint** 上
@@ -2181,7 +2205,7 @@ cross-KV 失效由 `_refresh_dit_cross_kv` 原地完成（且 C6 层 1 证明它
 实测 `resolve_pipeline_class("groot_n17","torch","rtx_sm87")` →
 **`GrootN17TorchFrontendOrin`**（`api.py:875` 本来就走 `_PIPELINE_MAP`）。
 真正成立的只有：`api.py:831` 那个 **`use_fp16=True` 实验性白名单**里没有本三元组，
-所以在 Orin 上传 `use_fp16=True` 会拿到一条**没提到 sm87** 的 `ValueError` —— 
+所以在 Orin 上传 `use_fp16=True` 会拿到一条**没提到 sm87** 的 `ValueError` ——
 是**报错信息质量**问题，不是路由缺口。另核实 `use_fp8=True` + sm87 会正常路由到 Orin，
 并在 `__init__` 里**任何 CUDA 工作之前**被响亮拒绝（`_require_arch` 与
 `super().__init__` 都在拒绝之后）。红线 #7：写下来的 API 都要对过源码，这条没对过。
@@ -2247,7 +2271,7 @@ cross-KV 失效由 `_refresh_dit_cross_kv` 原地完成（且 C6 层 1 证明它
 | eager 臂可达性 | `use_backbone_graph` 默认 `True`，且 `infer` 源码里两条臂都在（opt-out 不是装饰品） |
 | 校验不重复 | graph 臂里 `infer` **不**校验（由 `run_backbone_graph` 校验），eager 臂里 `infer` 校验；且校验发生在 `replay()` **之前** |
 
-`test_the_backbone_graph_entry_point_is_a_known_gap` 那条**反向绊线已按设计触发并被替换** —— 
+`test_the_backbone_graph_entry_point_is_a_known_gap` 那条**反向绊线已按设计触发并被替换** ——
 它当初写的就是"哪天 `run_backbone_graph` 出现了，这个测试会失败并要求同步文档"。
 
 **测试计数**：dispatch **56 → 58**，continuous **7 → 9**；
@@ -2364,7 +2388,7 @@ cross-KV 失效由 `_refresh_dit_cross_kv` 原地完成（且 C6 层 1 证明它
 **实现**：`_project_dit_cross_kv` 改用 `gemm.bf16_nn` + `fvk.add_bias_bf16`，
 直接吃**已经是 bf16** 的 `_dit_k_w[li]`（实测 `(2048,1536)` bf16 row-major，
 正好是 `bf16_nn` 的 `[K,N]` 约定）。**M/N/K 从权重形状读，不写常量**（红线 #6）。
-旧的 fp32 臂保留为 `_project_dit_cross_kv_fp32`，**明确标注只作参考、不在服务路径上** —— 
+旧的 fp32 臂保留为 `_project_dit_cross_kv_fp32`，**明确标注只作参考、不在服务路径上** ——
 它是三档门的对照臂，删了门就没法写。
 **403 MB 的 `_dit_cross_kv_weights` fp32 权重缓存随之删除**（§6.15.5 那个），
 bf16 GEMM 不需要它。
@@ -3483,7 +3507,7 @@ continuous **9 → 10**、preprocess **65** 不变、N1.6 后端门 **16** 不�
 **关键发现**:
 | 发现 | 影响 |
 |---|---|
-| `/mnt/GR00T` 含 **N1.5 / N1.6 / N1.7 三个版本** + Cosmos-Reason2-2B（N1.7 的 backbone 原模型） | 版本选型；N1.5 在 FlashRT 中零支持 |
+| `${GROOT_CHECKPOINT_ROOT}` 含 **N1.5 / N1.6 / N1.7 三个版本** + Cosmos-Reason2-2B（N1.7 的 backbone 原模型） | 版本选型；N1.5 在 FlashRT 中零支持 |
 | 两个 checkpoint 的张量数（1106 / 1030）与 `docs/groot_transformers5_weight_corruption.md` 记录一致 | **与 Thor 适配同一批权重**，Thor 精度数字可直接对照 |
 | bf16 DiT 已达权重流上限 95.6% | bf16 无空间，唯一杠杆是减字节 |
 | CUDA graph 对 DiT GEMM 链只有 1.07× | 推翻"launch 开销 15 ms"假设；graph 的价值在全链路 eager→图，不在 GEMM 本身 |
@@ -4034,7 +4058,7 @@ backbone **逐位相同**；同一观测下 `infer()` vs `infer(aux=)` **逐位�
 
 **测试计数**: 真机档 **68 passed**（precision 17 + dispatch 51，56.2 s）；
 仿真档 **75 passed**（+ continuous 7，66.6 s，需
-`FLASHRT_GROOT_N17_FRAMES=100,107`，否则 precision 模块整体 skip —— 
+`FLASHRT_GROOT_N17_FRAMES=100,107`，否则 precision 模块整体 skip ——
 skip 不是绿，§6.5 记过这条）。两次均锁频 1300.5 MHz，均在干净进程里跑
 （§11 记过一次 NVML 断言：与 3.3B 参数的 N1.6 探针同进程会 OOM）。
 
@@ -4124,7 +4148,7 @@ M/N/K 从权重形状读；旧 fp32 臂保留为 `_project_dit_cross_kv_fp32`（
 而是该 arch 上没有这个 epilogue。按红线 #1/#8 只报不改（§8）。
 
 **决策记录**: **保留 bf16 臂为服务路径**，但明确标注为**使用方可否决的取舍**
-（动的是使用方点名关注的 KV 通路），并把回退方式写进 §6.19.3 —— 
+（动的是使用方点名关注的 KV 通路），并把回退方式写进 §6.19.3 ——
 参考臂与其文档都还在仓里，回退不需要重新实现。
 
 **测试**: dispatch **58 → 63**（新增 5 条 CPU 契约钉子，其中最重要的是

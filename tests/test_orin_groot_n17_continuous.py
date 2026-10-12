@@ -35,8 +35,8 @@ Skipped unless ``FLASHRT_GROOT_N17_CHECKPOINT`` is set and the fixtures exist.
 These gates need *consecutive* frames plus one from a different episode, which
 the sim-collected set provides, so it is the default tag here:
 
-    FLASHRT_GROOT_N17_CHECKPOINT=/mnt/GR00T/so101_sim_rynnbot/checkpoint-89-1.000 \
-      HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONPATH=/mnt/Isaac-GR00T:. \
+    FLASHRT_GROOT_N17_CHECKPOINT="${FLASHRT_GROOT_N17_CHECKPOINT}" \
+      HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 PYTHONPATH="${ISAAC_GROOT_ROOT}:." \
       python -m pytest tests/test_orin_groot_n17_continuous.py -v
 
 One frontend is resident for the whole module (~3.4 GB of Orin's 61 GB unified

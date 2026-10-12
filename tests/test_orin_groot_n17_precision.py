@@ -21,12 +21,12 @@ Gates:
 Skipped unless ``FLASHRT_GROOT_N17_CHECKPOINT`` points at a GR00T-N1.7
 checkpoint and the paired fixtures exist. Run:
 
-    FLASHRT_GROOT_N17_CHECKPOINT=/mnt/GR00T/so101_sim_rynnbot/checkpoint-89-1.000 \
+    FLASHRT_GROOT_N17_CHECKPOINT="${FLASHRT_GROOT_N17_CHECKPOINT}" \
       HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
-      PYTHONPATH=/mnt/Isaac-GR00T:. \
+      PYTHONPATH="${ISAAC_GROOT_ROOT}:." \
       python -m pytest tests/test_orin_groot_n17_precision.py -v
 
-``/mnt/Isaac-GR00T`` is required, not optional: G4 calls ``denormalize_action``,
+``${ISAAC_GROOT_ROOT}`` is required, not optional: G4 calls ``denormalize_action``,
 which lazily imports ``gr00t.model.gr00t_n1d7`` to build the HF processor.
 Without it those two tests fail with ``ModuleNotFoundError: No module named
 'gr00t'``. The offline vars skip the HF Hub HEAD requests, which otherwise

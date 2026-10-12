@@ -22,9 +22,10 @@ matter:
 Data must be real (AGENTS.md §3.7): synthetic inputs mismeasure activation
 outliers, and the outlier profile is what decides the precision tier.
 
-Usage:
-  PYTHONPATH=/mnt/Isaac-GR00T:/mnt/FlashRT \
-    /mnt/venvs/groot_n17/bin/python \
+Usage (set FLASHRT_GROOT_N17_CHECKPOINT / FLASHRT_GROOT_N17_DATASET first,
+or pass --ckpt / --dataset; use N16 variables with --ver n16):
+  PYTHONPATH="${ISAAC_GROOT_ROOT}:${FLASHRT_ROOT}" \
+    "${GROOT_N17_VENV}/bin/python" \
     tests/_helpers/groot_orin/capture_aux.py --ver n17 --frames 0,300
 """
 from __future__ import annotations
@@ -43,14 +44,7 @@ import torch
 
 REPO = Path(__file__).resolve().parents[3]
 
-CKPTS = {
-    "n17": "/mnt/GR00T/so101_sim_rynnbot/checkpoint-89-1.000",
-    "n16": "/mnt/GR00T/lerobot_so100/checkpoint-10-1.000",
-}
-DATASETS = {
-    "n17": "/mnt/groot_realdata/cube_to_bowl_5",
-    "n16": "/mnt/groot_realdata/cube_to_bowl_5",
-}
+VERSIONS = ("n17", "n16")
 SEED = 0
 
 # Per-version aux keys; see REQUIRED_BY_VER below for why these are enforced.
@@ -90,7 +84,7 @@ def build_obs(ds, frame_index, *, state_to_radians: bool = False):
 def parse_args():
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--ver", choices=list(CKPTS), default="n17")
+    p.add_argument("--ver", choices=VERSIONS, default="n17")
     p.add_argument("--ckpt", default=None)
     p.add_argument("--dataset", default=None)
     p.add_argument("--frames", default="0,300")
@@ -100,7 +94,14 @@ def parse_args():
                         "reference fixture this aux bundle is paired with")
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--fixture-dir", default=str(REPO / "tests" / "fixtures"))
-    return p.parse_args()
+    args = p.parse_args()
+    prefix = f"FLASHRT_GROOT_{args.ver.upper()}"
+    args.ckpt = args.ckpt or os.environ.get(f"{prefix}_CHECKPOINT")
+    args.dataset = args.dataset or os.environ.get(f"{prefix}_DATASET")
+    if not args.ckpt or not args.dataset:
+        p.error(f"provide --ckpt and --dataset, or set {prefix}_CHECKPOINT "
+                f"and {prefix}_DATASET")
+    return args
 
 
 def _bind(orig, args, kwargs):
@@ -450,8 +451,8 @@ REQUIRED_BY_VER = {"n17": REQUIRED_N17, "n16": REQUIRED_N16}
 
 def main():
     args = parse_args()
-    ckpt = args.ckpt or CKPTS[args.ver]
-    dataset = args.dataset or DATASETS[args.ver]
+    ckpt = args.ckpt
+    dataset = args.dataset
     frames = [int(x) for x in args.frames.split(",") if x.strip() != ""]
 
     from gr00t.data.embodiment_tags import EmbodimentTag

@@ -26,10 +26,12 @@ Streaming, not fixture-based: a 593-frame episode would be ~6.8 GB of aux
 bundles on disk. This keeps one frame's capture in memory, compares, and drops
 it — HF eager, both FlashRT arms and the comparison all live in one process.
 
-Usage:
-  PYTHONPATH=/mnt/Isaac-GR00T:/mnt/FlashRT \
-    /mnt/venvs/groot_n17/bin/python \
+Usage (set FLASHRT_GROOT_N17_CHECKPOINT / FLASHRT_GROOT_N17_DATASET first,
+or pass --ckpt / --dataset; use N16 variables with --ver n16):
+  PYTHONPATH="${ISAAC_GROOT_ROOT}:${FLASHRT_ROOT}" \
+    "${GROOT_N17_VENV}/bin/python" \
     tests/_helpers/groot_orin/long_horizon_ab.py \
+    --dataset "${GROOT_DATA_ROOT}/green_to_blue_block_sim" \
     --start 0 --count 593 --stride 1 --out /tmp/n17_long_horizon.jsonl
 """
 from __future__ import annotations
@@ -56,12 +58,6 @@ sys.path.insert(0, str(HELPER))
 # aux" checks, and a second copy would drift (AGENTS.md red line #2).
 import capture_aux  # noqa: E402
 
-#: This machine's paths, used only as defaults -- override with --ckpt /
-#: --dataset. The run is not reproducible for anyone else without that, and a
-#: hardcoded absolute path in a committed reproducer is how a script that was
-#: verified once becomes a script nobody can run again.
-DEFAULT_CKPT = "/mnt/GR00T/so101_sim_rynnbot/checkpoint-89-1.000"
-DEFAULT_DATASET = "/mnt/groot_realdata/green_to_blue_block_sim"
 SEED = 0
 RAD2DEG = 180.0 / 3.141592653589793
 DEVFREQ = Path("/sys/class/devfreq/17000000.gpu")
@@ -71,9 +67,9 @@ def parse_args():
     p = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--ckpt", default=DEFAULT_CKPT,
+    p.add_argument("--ckpt", default=os.environ.get("FLASHRT_GROOT_N17_CHECKPOINT"),
                    help="GR00T N1.7 checkpoint directory")
-    p.add_argument("--dataset", default=DEFAULT_DATASET,
+    p.add_argument("--dataset", default=os.environ.get("FLASHRT_GROOT_N17_DATASET"),
                    help="video-backed LeRobot root to stream frames from")
     p.add_argument("--start", type=int, default=0,
                    help="global frame index of the prompt (= first observation)")
@@ -88,7 +84,11 @@ def parse_args():
                         "long-horizon number taken unlocked is not reportable "
                         "-- benchmarking-hygiene, and it invented a -1.7 ms "
                         "win on this exact board once)")
-    return p.parse_args()
+    args = p.parse_args()
+    if not args.ckpt or not args.dataset:
+        p.error("provide --ckpt and --dataset, or set "
+                "FLASHRT_GROOT_N17_CHECKPOINT and FLASHRT_GROOT_N17_DATASET")
+    return args
 
 
 def check_clocks():

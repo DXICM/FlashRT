@@ -19,8 +19,9 @@ Output fixture (torch.save dict):
   activations  per-block hidden states for every stage
   actions      decoded (unnormalized) action output
 
-Usage:
-  PYTHONPATH=/mnt/Isaac-GR00T:/mnt/FlashRT python \
+Usage (set FLASHRT_GROOT_N17_CHECKPOINT / FLASHRT_GROOT_N17_DATASET first,
+or pass --ckpt / --dataset; use N16 variables with --ver n16):
+  PYTHONPATH="${ISAAC_GROOT_ROOT}:${FLASHRT_ROOT}" python \
     tests/_helpers/groot_orin/gen_reference.py --ver n17 --frames 0,100,300
 """
 from __future__ import annotations
@@ -38,14 +39,7 @@ import torch
 
 REPO = Path(__file__).resolve().parents[3]
 
-CKPTS = {
-    "n17": "/mnt/GR00T/so101_sim_rynnbot/checkpoint-89-1.000",
-    "n16": "/mnt/GR00T/lerobot_so100/checkpoint-10-1.000",
-}
-DATASETS = {
-    "n17": "/mnt/groot_realdata/cube_to_bowl_5",
-    "n16": "/mnt/groot_realdata/cube_to_bowl_5",
-}
+VERSIONS = ("n17", "n16")
 # expected block counts per version -- asserted so a silently truncated or
 # differently-shaped backbone fails loudly instead of producing a bad reference.
 # ``vlln`` is the action head's LayerNorm. N1.6 needs it captured because its
@@ -88,7 +82,7 @@ DEFAULT_PROVENANCE = (
 def parse_args():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--ver", choices=list(CKPTS), required=True)
+    p.add_argument("--ver", choices=VERSIONS, required=True)
     p.add_argument("--ckpt", default=None)
     p.add_argument("--dataset", default=None)
     p.add_argument("--frames", default="0,100,300",
@@ -112,7 +106,14 @@ def parse_args():
                         "names the real-robot SO101 set, so a simulation "
                         "capture that omits this flag ships fixtures that "
                         "mislabel their own data")
-    return p.parse_args()
+    args = p.parse_args()
+    prefix = f"FLASHRT_GROOT_{args.ver.upper()}"
+    args.ckpt = args.ckpt or os.environ.get(f"{prefix}_CHECKPOINT")
+    args.dataset = args.dataset or os.environ.get(f"{prefix}_DATASET")
+    if not args.ckpt or not args.dataset:
+        p.error(f"provide --ckpt and --dataset, or set {prefix}_CHECKPOINT "
+                f"and {prefix}_DATASET")
+    return args
 
 
 def find_stage_modules(model, ver):
@@ -233,8 +234,8 @@ def build_obs(ds, frame_index, *, state_to_radians: bool = False):
 
 def main():
     args = parse_args()
-    ckpt = args.ckpt or CKPTS[args.ver]
-    dataset = args.dataset or DATASETS[args.ver]
+    ckpt = args.ckpt
+    dataset = args.dataset
     frames = [int(x) for x in args.frames.split(",") if x.strip() != ""]
     state_unit = args.state_unit or STATE_UNIT[args.ver]
 
